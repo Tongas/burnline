@@ -102,11 +102,11 @@ Claude Code as `/burnline-reset`), for starting the count over.
 
 ```
 /plugin marketplace add Tongas/burnline
-/plugin install burnline@burnline-marketplace
+/plugin install burnline@burnline
 ```
 
 The marketplace name shown by `/plugin marketplace list` after adding it
-is the authoritative one to use — if it differs from `burnline-marketplace`
+is the authoritative one to use — if it differs from `burnline`
 on your machine, use that instead.
 
 Restart Claude Code (or start a new session) and the status line will pick

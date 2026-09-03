@@ -110,12 +110,12 @@ Claude Code como `/burnline-reset`), para volver a empezar el conteo.
 
 ```
 /plugin marketplace add Tongas/burnline
-/plugin install burnline@burnline-marketplace
+/plugin install burnline@burnline
 ```
 
 El nombre de marketplace que muestra `/plugin marketplace list` después
 de agregarlo es el que manda — si en tu máquina difiere de
-`burnline-marketplace`, usá ese en su lugar.
+`burnline`, usá ese en su lugar.
 
 Reiniciá Claude Code (o iniciá una sesión nueva) y la barra de estado va a
 adoptar el formato de Burnline automáticamente.
