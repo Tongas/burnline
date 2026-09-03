@@ -1,0 +1,29 @@
+{
+  "name": "burnline-marketplace",
+  "owner": {
+    "name": "Gastón Parravicini",
+    "url": "https://github.com/tongas"
+  },
+  "plugins": [
+    {
+      "name": "burnline",
+      "source": "./",
+      "description": "Real spend, right in your status line. Session, per-project, and total monthly cost from Claude Code's own cost data — no repricing, no external tools.",
+      "version": "0.1.0",
+      "author": {
+        "name": "Gastón Parravicini",
+        "url": "https://github.com/tongas"
+      },
+      "category": "observability",
+      "homepage": "https://github.com/tongas/burnline",
+      "license": "MIT",
+      "keywords": [
+        "cost",
+        "spend",
+        "statusline",
+        "observability",
+        "billing"
+      ]
+    }
+  ]
+}

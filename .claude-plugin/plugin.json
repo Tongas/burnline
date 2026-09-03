@@ -1,0 +1,19 @@
+{
+  "name": "burnline",
+  "displayName": "Burnline",
+  "version": "0.1.0",
+  "description": "Real spend, right in your status line. Shows session, per-project, and total monthly cost computed from Claude Code's own cost.total_cost_usd — no repricing, no external tools.",
+  "author": {
+    "name": "Gastón Parravicini"
+  },
+  "homepage": "https://github.com/tongas/burnline",
+  "repository": "https://github.com/tongas/burnline",
+  "license": "MIT",
+  "keywords": [
+    "cost",
+    "spend",
+    "statusline",
+    "observability",
+    "billing"
+  ]
+}

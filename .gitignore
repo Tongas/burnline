@@ -1,0 +1,27 @@
+# --- Node ---
+node_modules/
+*.log
+
+# --- OS / editor cruft ---
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# --- Claude Code session/local state ---
+# Never ship transcripts, session locks, or any other local machine state
+# that a running Claude Code session drops into a project directory.
+.claude/
+*.jsonl
+
+# --- Burnline's own runtime data ---
+# Real accumulated spend lives under the user's Claude home
+# (~/.claude/burnline/), never inside the repo. These rules are defensive,
+# covering anyone who points BURNLINE_DATA_DIR at a repo-local path, plus
+# every temp/output directory the test harness creates.
+.burnline/
+test/tmp-burnline-data/
+test/tmp-*/
+**/tmp-burnline-data/
