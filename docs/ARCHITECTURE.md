@@ -19,6 +19,25 @@ that ever sees `cost.total_cost_usd` is the statusLine command. So read,
 persist, and render all had to collapse into that single script — there is
 no separate observer to delegate to.
 
+### `${CLAUDE_PLUGIN_ROOT}` only resolves through a plugin install, not by hand
+
+The plugin's own `settings.json` registers its statusLine command as
+`node "${CLAUDE_PLUGIN_ROOT}/statusline/status.js"`, which works correctly
+once Claude Code merges that file into a user's settings during a real
+plugin install. It does **not** work if that same literal string is
+hand-typed directly into a user's own top-level `~/.claude/settings.json`
+— confirmed empirically (Sep 3, 2026): applying it to a manually-maintained
+settings file caused the statusLine to silently freeze (no crash, no
+visible error — the underlying spend file simply stopped updating)
+rather than fail loudly. Reverting to an absolute path resumed ticking
+within seconds, with clean before/after timestamps ruling out coincidence.
+
+The variable is resolved by Claude Code's plugin subsystem at
+install/merge time, not as a general environment variable available to
+any arbitrary `statusLine.command`. Anyone wiring Burnline's statusLine
+manually — e.g. for local dev/testing before a proper plugin install — must
+use an absolute path, not the plugin-relative syntax.
+
 ## 2. Why the script tracks a delta instead of trusting a running total
 
 `cost.total_cost_usd` is cumulative *for the current session*, not a delta
