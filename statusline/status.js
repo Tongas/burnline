@@ -128,7 +128,6 @@ function main() {
     render({
       ...figures,
       modelName,
-      previousMonth,
       budgetUsd: Number.isFinite(budget) && budget > 0 ? budget : 0,
       monthFraction: (now.getTime() - monthStart) / (monthEnd - monthStart),
       now,

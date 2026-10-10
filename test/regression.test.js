@@ -137,7 +137,7 @@ const tests = {
       version: 2, sessions: {}, days: {},
       projects: { 'app-x': { path: '/p/app', months: { [prev]: 40 } } },
     }));
-    assert.match(tick(dir, { cost: 10 }), /month \S+ 25% of \w+ \$40\.00/);
+    assert.match(tick(dir, { cost: 10 }), /month \S+ 25% of last month's \$40\.00/);
     execFileSync('node', [path.join(__dirname, '..', 'statusline', 'set-budget.js'), '100'], { env: { ...process.env, BURNLINE_DATA_DIR: dir } });
     assert.match(tick(dir, { cost: 10 }), /month \S+ 10% of \$100 budget/);
   },

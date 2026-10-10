@@ -1,7 +1,7 @@
 {
   "name": "burnline",
   "displayName": "Burnline",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Real spend, right in your status line. Shows session, per-project, and total cost (month and all-time), daily trend, budget bar, and 5-hour/7-day limit bars, from Claude Code's own cost.total_cost_usd — no repricing, no external tools.",
   "author": {
     "name": "Gastón Parravicini"

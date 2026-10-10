@@ -77,11 +77,6 @@ function sparkline(values) {
     .join('');
 }
 
-function monthLabel(key) {
-  const [y, m] = key.split('-').map(Number);
-  return new Date(y, m - 1, 1).toLocaleString('en-US', { month: 'short' });
-}
-
 const SEP = () => paint(' │ ', 'dim');
 
 function clock(date) {
@@ -146,8 +141,9 @@ function cacheSegment(hitRatio, warm) {
 }
 
 // f: { modelName, label, sessionUsd, projectMonthUsd, projectAllUsd,
-//      totalMonthUsd, totalAllUsd, todayUsd, last7Usd[], previousMonth,
-//      previousMonthUsd, budgetUsd, monthFraction }
+//      totalMonthUsd, totalAllUsd, todayUsd, last7Usd[], previousMonthUsd,
+//      budgetUsd, monthFraction, now, fiveHour, sevenDay, cacheHitRatio,
+//      cacheWarm }
 function render(f) {
   const line1 =
     paint(`◆ ${f.modelName}`, 'bold', 'cyan') +
@@ -167,7 +163,7 @@ function render(f) {
   const reference = f.budgetUsd > 0 ? f.budgetUsd : f.previousMonthUsd;
   if (reference > 0) {
     const ratio = f.totalMonthUsd / reference;
-    const what = f.budgetUsd > 0 ? `of ${money(f.budgetUsd).replace(/\.00$/, '')} budget` : `of ${monthLabel(f.previousMonth)} ${money(f.previousMonthUsd)}`;
+    const what = f.budgetUsd > 0 ? `of ${money(f.budgetUsd).replace(/\.00$/, '')} budget` : `of last month's ${money(f.previousMonthUsd)}`;
     parts.push(paint('month ', 'dim') + bar(ratio) + ' ' + paint(`${Math.round(ratio * 100)}%`, 'bold', levelColor(ratio)) + paint(` ${what}`, 'dim'));
   }
 
