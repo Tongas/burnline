@@ -99,8 +99,10 @@ Line 2 is how fast it's going, in color:
   (today highlighted). Daily tracking starts the day you upgrade, so the
   sparkline fills up over the first week.
 - **month** — a bar for this month's total that turns green → yellow →
-  red at 70% / 90%. It fills towards your monthly budget if you set one,
-  otherwise towards last month's total.
+  red at 70% / 90%. It fills towards your monthly budget if you set one
+  (`80% of $300 budget`), otherwise towards last month's total
+  (`8% of last month's $2,743`: this month's spend so far is 8% of what
+  you spent in all of last month).
 - **pace** — projected end-of-month total at the current rate, colored
   against the same budget/last-month reference (shown after the first
   ~1.5 days of the month).

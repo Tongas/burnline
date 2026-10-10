@@ -107,7 +107,9 @@ La línea 2 muestra a qué velocidad se gasta, con color:
   actualizás, así que el sparkline se completa durante la primera semana.
 - **month** — una barra del total del mes que pasa de verde → amarillo →
   rojo al 70% / 90%. Se llena hacia tu presupuesto mensual si definiste
-  uno; si no, hacia el total del mes pasado.
+  uno (`80% of $300 budget`); si no, hacia el total del mes pasado
+  (`8% of last month's $2,743`: lo que llevás gastado este mes es el 8% de
+  lo que gastaste en todo el mes pasado).
 - **pace** — proyección del total a fin de mes al ritmo actual,
   coloreada contra la misma referencia (presupuesto o mes pasado). Aparece
   pasado el primer día y medio del mes.
