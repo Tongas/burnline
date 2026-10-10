@@ -89,7 +89,9 @@ Full design rationale, including why each of these choices was made, is in
 ## Reading the status line
 
 Line 1 is where the money is: this session, this project (this month and
-all-time), and everything (this month and all-time).
+all-time), and everything (this month and all-time). The label at the end
+is `equivalent` on Pro/Max (what the same usage would cost on the API;
+you're not billed it) or `actual` on pay-per-token API billing.
 
 Line 2 is how fast it's going, in color:
 
@@ -117,12 +119,43 @@ Line 3 shows your limits, when Claude Code reports them (Pro/Max):
 
 Set `NO_COLOR=1` in the statusLine command's environment for plain text.
 
+### How `pace` and `full` are calculated
+
+Both are straight-line projections: they assume you keep going at the
+average rate you've had so far.
+
+**`pace`** = spend so far this month ÷ fraction of the month elapsed.
+
+> On Oct 10 in the evening (~34% of October gone) with $205 spent:
+> $205 ÷ 0.34 ≈ **`pace ~$650/mo`**. Against a $300 budget that's red;
+> against last month's $2,743 it's green (~24%).
+
+**`full`** uses the 5-hour window. The window ends at `resets_at`, so it
+started 5 hours before that; your rate is `used% ÷ time elapsed`.
+
+> It's 14:00, the window resets at 17:00 (so it opened at 12:00), and
+> you've used 60%: that's 30%/hour. The remaining 40% lasts ~80 minutes,
+> so you'd hit 100% at 15:20 — before the reset, hence
+> **`⚠ full ~15:20`** in red. With 40% used at 16:00 instead, the rate is
+> 10%/hour and you'd end near 50%: **`→ ~50% at reset`**.
+
+Limitations:
+
+- Both use the average since the start (of the month, or of the 5-hour
+  window), not your last few minutes. An idle stretch makes them read
+  low; a burst after a quiet start makes them read high.
+- `pace` is hidden for the first ~1.5 days of a month and the 5-hour
+  projection for the first 15 minutes of a window: with that little data
+  the numbers swing wildly.
+- The 7-day window shows usage and time to reset, with no projection.
+
 ## Setting a monthly budget
 
 `/burnline:burnline-budget 300` sets a $300/month budget for the month
 bar; `/burnline:burnline-budget off` clears it, and with no argument it
 shows the current one. It's stored in `~/.claude/burnline/config.json`
-(`{"monthlyBudgetUsd": 300}`).
+(`{"monthlyBudgetUsd": 300}`), or under `$CLAUDE_CONFIG_DIR/burnline/`
+for an account with its own config dir — each account has its own budget.
 
 ## Checking tracked spend
 

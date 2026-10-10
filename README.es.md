@@ -96,7 +96,9 @@ estas decisiones, está en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 ## Cómo leer la barra de estado
 
 La línea 1 muestra dónde está la plata: esta sesión, este proyecto (este
-mes y desde siempre), y todo (este mes y desde siempre).
+mes y desde siempre), y todo (este mes y desde siempre). La etiqueta del
+final es `equivalent` en Pro/Max (lo que costaría el mismo uso por API; no
+te lo cobran) o `actual` con facturación por API pay-per-token.
 
 La línea 2 muestra a qué velocidad se gasta, con color:
 
@@ -126,12 +128,45 @@ La línea 3 muestra tus límites, cuando Claude Code los reporta (Pro/Max):
 Definí `NO_COLOR=1` en el entorno del comando de statusLine para texto
 plano.
 
+### Cómo se calculan `pace` y `full`
+
+Las dos son proyecciones en línea recta: suponen que seguís al ritmo
+promedio que llevás hasta ahora.
+
+**`pace`** = gastado en lo que va del mes ÷ fracción del mes transcurrida.
+
+> El 10 de octubre a la tarde (pasó ~34% de octubre) con $205 gastados:
+> $205 ÷ 0.34 ≈ **`pace ~$650/mo`**. Contra un presupuesto de $300 sale
+> en rojo; contra los $2,743 del mes pasado sale en verde (~24%).
+
+**`full`** usa la ventana de 5 horas. La ventana termina en `resets_at`,
+así que empezó 5 horas antes; tu ritmo es `% usado ÷ tiempo transcurrido`.
+
+> Son las 14:00, la ventana resetea a las 17:00 (empezó a las 12:00) y
+> llevás 60%: son 30% por hora. El 40% que queda dura ~80 minutos, así que
+> llegarías al 100% a las 15:20 — antes del reset, por eso aparece
+> **`⚠ full ~15:20`** en rojo. Si en cambio llevaras 40% a las 16:00, el
+> ritmo sería 10%/hora y terminarías cerca de 50%: **`→ ~50% at reset`**.
+
+Limitaciones:
+
+- Las dos usan el promedio desde el inicio (del mes o de la ventana de 5
+  horas), no lo de los últimos minutos. Un rato sin usar Claude las hace
+  marcar de menos; un arranque tranquilo seguido de mucho uso, de más.
+- `pace` no se muestra el primer día y medio del mes, ni la proyección de
+  5h en los primeros 15 minutos de la ventana: con tan pocos datos los
+  números oscilan mucho.
+- La ventana de 7 días muestra uso y tiempo hasta el reset, sin
+  proyección.
+
 ## Definir un presupuesto mensual
 
 `/burnline:burnline-budget 300` define un presupuesto de $300/mes para la
 barra del mes; `/burnline:burnline-budget off` lo borra, y sin argumento
 muestra el actual. Se guarda en `~/.claude/burnline/config.json`
-(`{"monthlyBudgetUsd": 300}`).
+(`{"monthlyBudgetUsd": 300}`), o en `$CLAUDE_CONFIG_DIR/burnline/` para
+una cuenta con su propio directorio de configuración — cada cuenta tiene
+su propio presupuesto.
 
 ## Consultar el gasto rastreado
 
