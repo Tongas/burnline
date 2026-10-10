@@ -117,6 +117,8 @@ La línea 3 muestra tus límites, cuando Claude Code los reporta (Pro/Max):
   (`⚠ full ~16:40`) o en qué porcentaje vas a terminar (`→ ~83% at
   reset`).
 - **7d** — la ventana semanal y cuánto falta para que se resetee.
+- Las ventanas 5h/7d se recuerdan entre sesiones, así que aparecen
+  apenas arranca una sesión, antes del primer mensaje.
 - **cache** — el porcentaje de aciertos del prompt cache de la sesión, y
   si sigue caliente. Con el cache frío, el próximo mensaje vuelve a pagar
   todo el contexto.

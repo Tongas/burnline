@@ -109,6 +109,8 @@ Line 3 shows your limits, when Claude Code reports them (Pro/Max):
   countdown), and whether you'll run out first at the current pace
   (`⚠ full ~16:40`) or where you'll land (`→ ~83% at reset`).
 - **7d** — the weekly window and time until it resets.
+- The 5h/7d windows are remembered between sessions, so they show as
+  soon as a session starts, before its first message.
 - **cache** — the session's prompt cache hit ratio, and whether it's
   still warm. A cold cache makes the next message re-pay for the whole
   context.

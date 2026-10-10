@@ -48,18 +48,27 @@ function main() {
   const rawCost = payload.cost && payload.cost.total_cost_usd;
   const costIsValid = typeof rawCost === 'number' && Number.isFinite(rawCost);
 
-  // rate_limits is only ever present for Pro/Max subscription plans (which
-  // are rate-limited, not metered); its absence means pay-per-token API
-  // billing. Same number either way, different label.
-  const isSubscription = Object.prototype.hasOwnProperty.call(payload, 'rate_limits');
-  const label = isSubscription ? 'equivalent' : 'actual';
-
   // Everything from reading the ledger through writing it back is one
   // transaction under the lock, and it ends in a single atomic write — so
   // overlapping or killed ticks can neither lose nor double-count a delta.
   const figures = ledgerStore.withLock(() => {
     const ledger = ledgerStore.loadLedger();
     const prevEntry = ledger.sessions[sessionId];
+
+    // rate_limits only arrives with an API response, so a freshly started
+    // session has none until the first message. The windows belong to the
+    // account, not the session, so the last ones seen are reused while
+    // they're still open — the limits line (and the billing label) then
+    // show from the very first tick instead of popping in later.
+    const freshLimits = payload.rate_limits && typeof payload.rate_limits === 'object' ? payload.rate_limits : null;
+    const stored = ledger.rateLimits;
+    const storedStillOpen = (w) => w && Number(w.resets_at) * 1000 > now.getTime();
+    const limits = freshLimits || {
+      five_hour: stored && storedStillOpen(stored.five_hour) ? stored.five_hour : undefined,
+      seven_day: stored && storedStillOpen(stored.seven_day) ? stored.seven_day : undefined,
+    };
+    const limitsChanged = freshLimits && JSON.stringify(freshLimits) !== JSON.stringify(stored);
+    if (limitsChanged) ledger.rateLimits = freshLimits;
 
     // A missing/malformed cost field is a bad payload, not a genuine "$0"
     // reading — fall back to the last known value and leave the ledger
@@ -87,6 +96,8 @@ function main() {
         updatedAt: now.toISOString(),
       };
       ledgerStore.saveLedger(ledger, now);
+    } else if (limitsChanged) {
+      ledgerStore.saveLedger(ledger, now);
     }
 
     const last7Usd = ledgerStore.lastDays(ledger, now, 7);
@@ -99,26 +110,28 @@ function main() {
       todayUsd: last7Usd[last7Usd.length - 1],
       last7Usd,
       previousMonthUsd: ledgerStore.totalMonth(ledger, previousMonth),
+      fiveHour: limits.five_hour || null,
+      sevenDay: limits.seven_day || null,
+      // rate_limits only exists on Pro/Max subscription plans (rate-limited,
+      // not metered); without it this is pay-per-token API billing. Same
+      // number either way, different label.
+      label: freshLimits || limits.five_hour || limits.seven_day ? 'equivalent' : 'actual',
     };
   });
 
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).getTime();
   const monthEnd = new Date(now.getFullYear(), now.getMonth() + 1, 1).getTime();
   const budget = Number(ledgerStore.loadConfig().monthlyBudgetUsd);
-  const rl = payload.rate_limits || {};
   const cache = payload.prompt_cache || null;
 
   process.stdout.write(
     render({
       ...figures,
       modelName,
-      label,
       previousMonth,
       budgetUsd: Number.isFinite(budget) && budget > 0 ? budget : 0,
       monthFraction: (now.getTime() - monthStart) / (monthEnd - monthStart),
       now,
-      fiveHour: rl.five_hour || null,
-      sevenDay: rl.seven_day || null,
       cacheHitRatio: cache && typeof cache.hit_ratio === 'number' ? cache.hit_ratio : null,
       cacheWarm: cache ? cache.warm === true : null,
     })

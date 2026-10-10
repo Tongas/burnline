@@ -192,6 +192,11 @@ the third line needs nothing persisted:
 - Claude Code re-runs the statusLine on its own when a `resets_at` or the
   prompt cache's `expires_at` passes, so the line doesn't go stale at
   those moments.
+- `rate_limits` only arrives with an API response, so a new session has
+  none until its first message. The windows belong to the account, not
+  the session, so the ledger keeps the last ones seen (`rateLimits`) and
+  shows them, and the `equivalent` label, while their `resets_at` is
+  still in the future.
 - `prompt_cache.hit_ratio` and `warm` matter for cost: a cold cache means
   the next message pays to re-process the whole context.
 

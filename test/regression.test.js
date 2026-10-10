@@ -195,6 +195,22 @@ const tests = {
     assert.doesNotMatch(calm, /full/);
   },
 
+  'limits seen earlier show from the first tick of a new session'() {
+    const dir = freshDir();
+    const now = Math.floor(Date.now() / 1000);
+    tick(dir, { cost: 1, extra: { rate_limits: { five_hour: { used_percentage: 30, resets_at: now + 3600 } } } });
+    const fresh = tick(dir, { session: 's2', cost: 0 }); // no rate_limits yet
+    assert.match(fresh, /5h \S+ 30% resets/);
+    assert.match(fresh, /equivalent/);
+    // An expired window is not shown.
+    const l = ledger(dir);
+    l.rateLimits.five_hour.resets_at = now - 10;
+    fs.writeFileSync(path.join(dir, 'ledger.json'), JSON.stringify(l));
+    const later = tick(dir, { session: 's3', cost: 0 });
+    assert.doesNotMatch(later, /5h/);
+    assert.match(later, /actual/);
+  },
+
   'prompt cache hit ratio and warmth are shown when reported'() {
     const dir = freshDir();
     const out = tick(dir, { cost: 1, extra: { prompt_cache: { hit_ratio: 0.93, warm: true } } });
