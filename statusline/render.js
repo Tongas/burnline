@@ -95,9 +95,10 @@ const FIVE_HOURS_MS = 5 * 3600 * 1000;
 
 // The 5-hour window opens with the first message and closes at resets_at,
 // so its start is resets_at - 5h and the average burn rate so far is
-// used% / elapsed. That's enough to say whether the window runs dry before
-// it resets — no history needed.
-function fiveHourSegment(w, now) {
+// used% / elapsed. When a recent rate is known (last 10–45 minutes, from
+// ledger samples), the higher of the two is used: a warning should come
+// early when you speed up after a quiet start, not after the fact.
+function fiveHourSegment(w, now, recentRate) {
   const pct = Number(w.used_percentage);
   if (!Number.isFinite(pct)) return null;
   const ratio = pct / 100;
@@ -106,13 +107,15 @@ function fiveHourSegment(w, now) {
   if (Number.isFinite(resetsMs) && resetsMs > now.getTime()) {
     text += paint(` resets ${clock(new Date(resetsMs))} (${duration(resetsMs - now.getTime())})`, 'dim');
     const elapsed = now.getTime() - (resetsMs - FIVE_HOURS_MS);
-    // Too early in the window, the rate is mostly noise.
-    if (pct > 0 && elapsed >= 15 * 60000) {
-      const msToFull = ((100 - pct) / pct) * elapsed;
+    // Too early in the window, the average is mostly noise.
+    const avgRate = pct > 0 && elapsed >= 15 * 60000 ? pct / elapsed : null;
+    const rate = Math.max(avgRate || 0, recentRate || 0);
+    if ((avgRate !== null || recentRate) && rate > 0) {
+      const msToFull = (100 - pct) / rate;
       if (now.getTime() + msToFull < resetsMs) {
         text += ' ' + paint(`⚠ full ~${clock(new Date(now.getTime() + msToFull))}`, 'bold', 'red');
       } else {
-        const atReset = Math.min(100, pct * (FIVE_HOURS_MS / elapsed));
+        const atReset = Math.min(100, pct + rate * (resetsMs - now.getTime()));
         text += ' ' + paint(`→ ~${Math.round(atReset)}% at reset`, levelColor(atReset / 100));
       }
     }
@@ -143,7 +146,7 @@ function cacheSegment(hitRatio, warm) {
 // f: { modelName, label, sessionUsd, projectMonthUsd, projectAllUsd,
 //      totalMonthUsd, totalAllUsd, todayUsd, last7Usd[], previousMonthUsd,
 //      budgetUsd, monthFraction, now, fiveHour, sevenDay, cacheHitRatio,
-//      cacheWarm }
+//      cacheWarm, fiveHourRecentRate }
 function render(f) {
   const line1 =
     paint(`◆ ${f.modelName}`, 'bold', 'cyan') +
@@ -178,7 +181,7 @@ function render(f) {
 
   const limits = [];
   const now = f.now || new Date();
-  if (f.fiveHour) limits.push(fiveHourSegment(f.fiveHour, now));
+  if (f.fiveHour) limits.push(fiveHourSegment(f.fiveHour, now, f.fiveHourRecentRate));
   if (f.sevenDay) limits.push(sevenDaySegment(f.sevenDay, now));
   if (f.cacheHitRatio !== null && f.cacheHitRatio !== undefined) limits.push(cacheSegment(f.cacheHitRatio, f.cacheWarm));
   const shown = limits.filter(Boolean);

@@ -69,6 +69,10 @@ function main() {
     };
     const limitsChanged = freshLimits && JSON.stringify(freshLimits) !== JSON.stringify(stored);
     if (limitsChanged) ledger.rateLimits = freshLimits;
+    const sample = freshLimits && freshLimits.five_hour
+      ? ledgerStore.recordFiveHourSample(ledger, freshLimits.five_hour, now)
+      : { rate: null, changed: false };
+    const recentFiveHourRate = sample.rate;
 
     // A missing/malformed cost field is a bad payload, not a genuine "$0"
     // reading — fall back to the last known value and leave the ledger
@@ -96,7 +100,7 @@ function main() {
         updatedAt: now.toISOString(),
       };
       ledgerStore.saveLedger(ledger, now);
-    } else if (limitsChanged) {
+    } else if (limitsChanged || sample.changed) {
       ledgerStore.saveLedger(ledger, now);
     }
 
@@ -111,6 +115,7 @@ function main() {
       last7Usd,
       previousMonthUsd: ledgerStore.totalMonth(ledger, previousMonth),
       fiveHour: limits.five_hour || null,
+      fiveHourRecentRate: recentFiveHourRate,
       sevenDay: limits.seven_day || null,
       // rate_limits only exists on Pro/Max subscription plans (rate-limited,
       // not metered); without it this is pay-per-token API billing. Same

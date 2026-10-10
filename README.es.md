@@ -132,8 +132,8 @@ plano.
 
 ### Cómo se calculan `pace` y `full`
 
-Las dos son proyecciones en línea recta: suponen que seguís al ritmo
-promedio que llevás hasta ahora.
+Las dos son proyecciones en línea recta: suponen que seguís al ritmo que
+llevás hasta ahora.
 
 **`pace`** = gastado en lo que va del mes ÷ fracción del mes transcurrida.
 
@@ -150,11 +150,17 @@ así que empezó 5 horas antes; tu ritmo es `% usado ÷ tiempo transcurrido`.
 > **`⚠ full ~15:20`** en rojo. Si en cambio llevaras 40% a las 16:00, el
 > ritmo sería 10%/hora y terminarías cerca de 50%: **`→ ~50% at reset`**.
 
+La proyección de 5h además mide tu ritmo de los últimos ~30 minutos y usa
+el más rápido de los dos. Si hace media hora estabas en 20% y ahora en
+50%, son 60%/hora, y el aviso aparece aunque el promedio de toda la
+ventana todavía se vea bien.
+
 Limitaciones:
 
-- Las dos usan el promedio desde el inicio (del mes o de la ventana de 5
-  horas), no lo de los últimos minutos. Un rato sin usar Claude las hace
-  marcar de menos; un arranque tranquilo seguido de mucho uso, de más.
+- `pace` usa el promedio desde el inicio del mes: unos días sin usar
+  Claude lo bajan y un día de mucho uso lo sube.
+- La proyección de 5h tiende a avisar temprano: después de una ráfaga de
+  uso puede mostrar `full` aunque estés por bajar el ritmo.
 - `pace` no se muestra el primer día y medio del mes, ni la proyección de
   5h en los primeros 15 minutos de la ventana: con tan pocos datos los
   números oscilan mucho.

@@ -124,7 +124,7 @@ Set `NO_COLOR=1` in the statusLine command's environment for plain text.
 ### How `pace` and `full` are calculated
 
 Both are straight-line projections: they assume you keep going at the
-average rate you've had so far.
+rate you've had so far.
 
 **`pace`** = spend so far this month ÷ fraction of the month elapsed.
 
@@ -141,11 +141,17 @@ started 5 hours before that; your rate is `used% ÷ time elapsed`.
 > **`⚠ full ~15:20`** in red. With 40% used at 16:00 instead, the rate is
 > 10%/hour and you'd end near 50%: **`→ ~50% at reset`**.
 
+The 5-hour projection also tracks your rate over the last ~30 minutes and
+uses whichever is faster. If you were at 20% half an hour ago and you're
+at 50% now, that's 60%/hour, so the warning shows even if the window's
+overall average still looks fine.
+
 Limitations:
 
-- Both use the average since the start (of the month, or of the 5-hour
-  window), not your last few minutes. An idle stretch makes them read
-  low; a burst after a quiet start makes them read high.
+- `pace` uses the average since the start of the month, so a few idle
+  days pull it down and one heavy day pushes it up.
+- The 5-hour projection leans towards warning early: after a burst it
+  can show `full` even if you're about to slow down.
 - `pace` is hidden for the first ~1.5 days of a month and the 5-hour
   projection for the first 15 minutes of a window: with that little data
   the numbers swing wildly.

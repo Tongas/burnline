@@ -180,8 +180,8 @@ month`; the `all` figures always include it.
 
 On Pro/Max, the payload carries `rate_limits.five_hour` /
 `rate_limits.seven_day` (`used_percentage`, `resets_at`), and on recent
-versions a `prompt_cache` summary. These are already in the payload, so
-the third line needs nothing persisted:
+versions a `prompt_cache` summary. The third line is built from those,
+plus two small things the ledger keeps (described below):
 
 - The 5-hour window opens with the first message and closes at
   `resets_at`, so its start is `resets_at − 5h` and the average rate so
@@ -189,6 +189,11 @@ the third line needs nothing persisted:
   window runs out before it resets (`⚠ full ~HH:MM`) or where it lands
   (`→ ~N% at reset`). Projections are skipped in the first 15 minutes,
   when the rate is mostly noise.
+- The average alone reads low after a quiet start, so the ledger also
+  keeps the last ~45 minutes of readings for the current window
+  (`fiveHourSamples`, reset when `resets_at` changes) and computes the
+  rate over the last 10–45 minutes. The projection uses whichever rate is
+  higher: for a "you'll run out" warning, early beats late.
 - Claude Code re-runs the statusLine on its own when a `resets_at` or the
   prompt cache's `expires_at` passes, so the line doesn't go stale at
   those moments.

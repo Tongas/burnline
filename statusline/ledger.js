@@ -14,7 +14,9 @@
 //     version: 2,
 //     sessions: { <session_id>: { lastUsd, updatedAt } },
 //     projects: { <slug>: { path, months: { "YYYY-MM": usd } } },
-//     days: { "YYYY-MM-DD": usd }   // all projects, for today + sparkline
+//     days: { "YYYY-MM-DD": usd },  // all projects, for today + sparkline
+//     rateLimits: { five_hour, seven_day },  // last seen, see status.js
+//     fiveHourSamples: { resetsAt, samples: [[ms, pct], ...] }
 //   }
 //
 // Amounts are frozen in dollars at the moment they're observed. Nothing is
@@ -226,6 +228,39 @@ function lastDays(ledger, date, n) {
   return out;
 }
 
+// Keeps the last ~45 minutes of 5-hour-window readings so the run-out
+// projection can use the recent rate, not just the average since the
+// window opened (which reads low after a quiet start). Returns the recent
+// rate in %/ms, or null without a reading 10–45 minutes old to compare to.
+const SAMPLE_KEEP_MS = 45 * 60000;
+const SAMPLE_MIN_SPAN_MS = 10 * 60000;
+
+function recordFiveHourSample(ledger, window, now) {
+  const pct = Number(window.used_percentage);
+  const resetsAt = Number(window.resets_at);
+  if (!Number.isFinite(pct) || !Number.isFinite(resetsAt)) return { rate: null, changed: false };
+  const t = now.getTime();
+  let state = ledger.fiveHourSamples;
+  let changed = false;
+  // A different resets_at means a new window; old readings don't apply.
+  if (!state || Math.abs(state.resetsAt - resetsAt) > 60) {
+    state = ledger.fiveHourSamples = { resetsAt, samples: [] };
+    changed = true;
+  }
+  const kept = state.samples.filter(([ms]) => t - ms <= SAMPLE_KEEP_MS);
+  if (kept.length !== state.samples.length) changed = true;
+  const last = kept[kept.length - 1];
+  if (!last || last[1] !== pct || t - last[0] >= 60000) {
+    kept.push([t, pct]);
+    changed = true;
+  }
+  state.samples = kept;
+
+  const base = kept.find(([ms]) => t - ms >= SAMPLE_MIN_SPAN_MS);
+  const rate = base ? Math.max(0, (pct - base[1]) / (t - base[0])) : null;
+  return { rate, changed };
+}
+
 // User settings, e.g. { "monthlyBudgetUsd": 300 }. Missing or broken
 // config just means defaults.
 function loadConfig() {
@@ -270,6 +305,7 @@ module.exports = {
   saveLedger,
   addSpend,
   lastDays,
+  recordFiveHourSample,
   loadConfig,
   saveConfig,
   projectMonth,

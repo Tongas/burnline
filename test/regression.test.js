@@ -195,6 +195,24 @@ const tests = {
     assert.doesNotMatch(calm, /full/);
   },
 
+  '5-hour projection uses the recent rate when it is faster than the average'() {
+    const dir = freshDir();
+    const now = Date.now();
+    const resetsAt = Math.floor(now / 1000) + 3600;
+    // 4h into the window at 50%: the average (12.5%/h) lands ~62% by reset,
+    // but 30 minutes ago it was at 20% — 60%/h now, so it runs out first.
+    fs.writeFileSync(path.join(dir, 'ledger.json'), JSON.stringify({
+      version: 2, sessions: {}, projects: {}, days: {},
+      fiveHourSamples: { resetsAt, samples: [[now - 30 * 60000, 20]] },
+    }));
+    const out = tick(dir, { cost: 1, extra: { rate_limits: { five_hour: { used_percentage: 50, resets_at: resetsAt } } } });
+    assert.match(out, /⚠ full ~\d\d:\d\d/);
+    // Without that history, the average alone says it makes it.
+    const dir2 = freshDir();
+    const out2 = tick(dir2, { cost: 1, extra: { rate_limits: { five_hour: { used_percentage: 50, resets_at: resetsAt } } } });
+    assert.match(out2, /→ ~6[23]% at reset/);
+  },
+
   'limits seen earlier show from the first tick of a new session'() {
     const dir = freshDir();
     const now = Math.floor(Date.now() / 1000);
