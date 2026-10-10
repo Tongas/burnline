@@ -8,8 +8,8 @@
     {
       "name": "burnline",
       "source": "./",
-      "description": "Real spend, right in your status line. Session, per-project, and total monthly cost from Claude Code's own cost data — no repricing, no external tools.",
-      "version": "0.1.0",
+      "description": "Real spend, right in your status line. Session, per-project, and total cost (month and all-time), budget and rate-limit bars, from Claude Code's own cost data — no repricing, no external tools.",
+      "version": "0.2.0",
       "author": {
         "name": "Gastón Parravicini",
         "url": "https://github.com/tongas"

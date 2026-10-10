@@ -41,108 +41,159 @@ use an absolute path, not the plugin-relative syntax.
 ## 2. Why the script tracks a delta instead of trusting a running total
 
 `cost.total_cost_usd` is cumulative *for the current session*, not a delta
-since the last tick. A naive implementation that persists the latest value
-every tick would double-count nothing — but it would also lose everything
-the moment a session resets, because on older Claude Code versions
-`/clear` zeroed `total_cost_usd` back to `0` while (as far as the
-statusLine payload was concerned) reusing the same `session_id`.
+since the last tick. So Burnline remembers the last value it saw for each
+`session_id` (`lastUsd`) and, on every tick, adds only the positive
+difference:
 
-So Burnline keeps its own memory of "the highest cost value ever seen for
-this session" (`lastSeenUsd`, tracked as a running peak, not just the most
-recent reading) and diffs against it on every invocation:
+- `current > lastUsd` → add `current - lastUsd`.
+- `current <= lastUsd` → add nothing; `lastUsd` moves down to `current`,
+  so whatever the session spends after the drop is still counted.
 
-- `new_total > peak` → normal case, `delta = new_total - peak`, and `peak`
-  advances to `new_total`.
-- `new_total <= peak` → nothing new happened from this tick's perspective;
-  `delta = 0` and `peak` is left unchanged.
+### History: from "last seen" to "peak" and back
 
-This per-session peak tracking is what makes accumulation correct across
-long sessions and across the statusLine script being invoked many times
-per minute — including when invocations for the *same* session overlap in
-time (see the concurrency note below), where peak-tracking's
-order-independence is what keeps the total correct regardless of which
-overlapping invocation happens to finish first.
+The first version used last-seen tracking but treated any drop as a reset
+and re-added the whole new value. Concurrent ticks for the same session
+could be processed out of order, and an out-of-order *lower* reading then
+got double-added. The fix at the time was a lock plus tracking the
+session's *peak* instead, which is order-independent.
 
-### Concurrency: why this needed a lock, and why "peak" instead of "last seen"
+Peak-tracking had its own failure mode, though: if `total_cost_usd`
+genuinely dropped within one `session_id`, everything spent afterwards was
+ignored until the old peak was exceeded. Cross-checking the ledger against
+Claude Code's own saved per-project `lastCost` (in `~/.claude.json`)
+turned up one session where the two disagreed by $218, with the transcript
+holding far more token usage than either figure accounted for. The cause
+couldn't be pinned down, but losing hundreds of dollars silently is the
+worst possible outcome for a spend tracker.
 
-statusLine ticks fire frequently, and nothing guarantees two invocations
-for the same session never overlap in wall-clock time (a burst of tool
-activity can trigger rapid refreshes faster than one invocation's disk I/O
-completes). Without protection, concurrent invocations race on the shared
-JSON files (`state/sessions.json` and each project's total file): each
-reads the same pre-update state, computes its own "correct" delta, and
-whichever writes last wins — silently discarding the other's update. The
-project total, being an *accumulation*, has no way to self-correct from a
-lost write; it stays wrong forever. (Session state, being an *overwrite*,
-tends to self-correct over many ticks, which is why real corrupted data
-showed a project total far below the session's own reported cost — that
-asymmetry was the actual symptom that led to this fix.)
+What made switching back safe is documented Claude Code behavior: *"If a
+new update triggers while your script is still running, Claude Code
+cancels the in-flight script."* So two ticks of one session essentially
+never run at once, and out-of-order readings are rare. The worst case
+of last-seen tracking is now a small overcount by the size of one
+reordering; the worst case of peak-tracking was an unbounded undercount.
 
-The fix has two parts:
+### Concurrency: the lock, and cancelled ticks
 
-1. **A lockfile-based mutex** (`withLock` in `status.js`) serializes the
-   entire read-decide-write transaction, so concurrent invocations can
-   never interleave their reads and writes.
-2. **Peak-tracking instead of "last seen."** Serialization alone isn't
-   enough: it guarantees invocations run one at a time, but not in the
-   order Claude Code logically fired them — two overlapping ticks can be
-   processed in either order depending on which one wins the lock first.
-   The original "any drop below last-seen is a reset, add the whole new
-   value" heuristic breaks under that reordering: an out-of-order *lower*
-   reading looks identical to a genuine reset and gets double-added.
-   Tracking the historical *maximum* instead of the *most recent* value
-   makes the algorithm commutative — applying the same set of readings in
-   any order converges to the same final peak and the same total delta —
-   so serialization plus peak-tracking together are what make concurrent
-   invocations safe.
+Ticks from *different* sessions (several Claude Code windows) still run
+concurrently, and they share one ledger. The whole read-decide-write
+transaction is therefore serialized behind a lockfile (`withLock` in
+`ledger.js`) and ends in a single atomic write (see §3).
 
-### Known limitation: peak-tracking assumes `total_cost_usd` never genuinely drops within one `session_id`
+Because Claude Code routinely cancels in-flight statusLine scripts, a
+lock holder being killed is normal. The lockfile stores its holder's pid,
+and a lock whose holder no longer exists is taken over immediately. The
+2-second timeout is only a backstop. Otherwise the next tick would wait
+out the timeout and likely be cancelled itself while waiting.
 
-Because a drop is now always treated as "nothing new" (`delta = 0`) rather
-than "the session reset, add the new value," this design depends on
-`total_cost_usd` never legitimately decreasing while `session_id` stays
-the same. That holds on Claude Code v2.1.211+, where official docs
-(`statusline.md`, on the `cost.total_cost_usd` field) state: *"Resets to
-$0 when `/clear` starts a new session. Before v2.1.211, the total carried
-over after `/clear`."* — i.e. `/clear` now starts a new session rather
-than resetting cost in place within the same one.
+## 3. Why spend is persisted to one ledger, by project and by month
 
-That statement is about "a new session," not verbatim about `session_id`
-— the inference that `session_id` itself changes is reasonable and
-consistent with the `SessionStart` hook's `"clear"` startup-reason filter,
-but it is not confirmed with that literal term anywhere in Anthropic's
-documentation. If this assumption is ever wrong on some future version —
-`total_cost_usd` drops while `session_id` stays the same — the failure
-mode is a silent undercount for that one drop event (`delta = 0`), not
-data corruption or double-counting. That's a deliberate tradeoff: it
-avoids regressing into the concurrency bug peak-tracking was built to fix,
-in exchange for potentially missing one narrow, currently-unobserved edge
-case.
-
-## 3. Why spend is persisted to disk, grouped by month and by project
-
-The status line has to answer three questions every tick: session cost,
-*this project's* cost this month, and *total* cost this month. None of
-those are available from the payload alone — the payload only ever tells
-you about the current session. Cross-session and cross-project aggregation
-requires a durable store that survives session restarts, so Burnline
-persists accumulated spend under:
+The status line has to answer five money questions every tick: session cost,
+*this project's* cost this month and all-time, and *total* cost this month
+and all-time. Only the first is in the payload — everything else needs a
+durable store that survives session restarts. Burnline keeps a single
+file:
 
 ```
-~/.claude/burnline/<YYYY-MM>/<project-slug>.json
+~/.claude/burnline/ledger.json
+{
+  "version": 2,
+  "sessions": { "<session_id>": { "lastUsd": 12.34, "updatedAt": "…" } },
+  "projects": { "<slug>": { "path": "/abs/dir", "months": { "2026-10": 98.7 } } },
+  "days": { "2026-10-10": 18.4 }
+}
 ```
 
-Grouping by calendar month makes "this month" a matter of picking the
-right file rather than filtering timestamps, and keeps old months
-naturally out of the way (and easy to prune or archive). Grouping by
-project (derived by slugifying `workspace.current_dir`/`cwd`) is what
-makes the per-project figure possible at all — without it, "project cost"
-would just be "total cost" with a different label.
+Every figure is derived on read (month = one key, all-time = sum of every
+month) — there's no rollup to keep in sync. `days` is the one exception
+to "per project": it's a global per-day total that only feeds the
+"today" figure and the 7-day sparkline, so it doesn't need a project
+breakdown. Formatting lives in `statusline/render.js`, separate from the
+bookkeeping, so it can change without touching the ledger logic. History is never pruned, so a
+new month never erases the past.
 
-The total for a given month is the sum across every project-slug file in
-that month's directory, computed on read — there's no separate rollup file
-to keep in sync, which removes an entire class of "the summary disagrees
-with the detail" bugs.
+### Why one file instead of one file per project per month (v1)
+
+The v1 layout wrote `state/sessions.json` and `<YYYY-MM>/<slug>.json`
+separately on every tick. Claude Code does kill statusLine processes
+mid-run — dozens of orphaned `*.tmp` files in real data were the
+evidence. A kill landing between those two writes left the project total
+updated but the session baseline stale, so the next tick re-added the same
+delta. With one file and one atomic rename, a tick either fully lands or
+doesn't happen. v1 data is imported into the ledger on first run and the
+old files are left untouched.
+
+### Why a project is `workspace.project_dir`, not `current_dir`
+
+`current_dir` follows every `cd` Claude makes during a session;
+`project_dir` is where Claude Code was launched and stays fixed. v1 keyed
+projects on `current_dir`, which split one project's spend across every
+subfolder a session wandered into (`app/`, `app/backend/`,
+`app/backend/services/`, …) — the visible symptom was "project" reading
+lower than "session". v1 history keeps those per-subfolder entries as
+they were recorded.
+
+### Why amounts are stored at micro-dollar precision, not cents
+
+v1 rounded the running total to the cent on every addition, which
+silently dropped every delta under half a cent — forever, since the
+session baseline had already advanced. Only display rounds to cents now.
+
+### Why session baselines are kept ~400 days, not "two months"
+
+`--resume` restores a session's previous `total_cost_usd`. If its
+baseline has been forgotten, the whole restored history looks like a fresh delta
+and gets counted twice. v1 pruned them after about two months; the ledger
+keeps them for 400 days.
+
+### Why worktrees count towards their parent repo
+
+Claude Code puts worktrees at `<repo>/.claude/worktrees/<name>`, and a
+session running in one reports that path as its `project_dir`. That's a
+throwaway checkout of the same project, so Burnline strips the
+`/.claude/worktrees/<name>` suffix and books the spend to the repo.
+
+### One ledger per account
+
+The documented way to use several Claude accounts on one machine is one
+config directory per account (`CLAUDE_CONFIG_DIR=~/.claude-work claude`).
+Burnline stores its data under `$CLAUDE_CONFIG_DIR/burnline/` (default
+`~/.claude/burnline/`), so each account's spend stays separate, which is
+what you want when one account is personal and another is paid by work.
+Switching accounts with `/login` inside the *same* config directory can't
+be told apart from the statusLine payload, so that spend is combined.
+
+### Price changes never rewrite the past
+
+Each delta is frozen in dollars, at whatever price Claude Code applied
+when it was observed. If prices change, past months stay as they were;
+all-time is past spend at past prices plus new spend at new prices.
+
+### Session vs. month figures across a month boundary
+
+A session that started last month keeps reporting its full cumulative
+cost, while `month` only counts what was added this month. So early in a
+month `session` can legitimately exceed `project … month` or `total …
+month`; the `all` figures always include it.
+
+## 3b. Limits line: 5-hour window, 7-day window, prompt cache
+
+On Pro/Max, the payload carries `rate_limits.five_hour` /
+`rate_limits.seven_day` (`used_percentage`, `resets_at`), and on recent
+versions a `prompt_cache` summary. These are already in the payload, so
+the third line needs nothing persisted:
+
+- The 5-hour window opens with the first message and closes at
+  `resets_at`, so its start is `resets_at − 5h` and the average rate so
+  far is `used% / elapsed`. Projected forward, that says whether the
+  window runs out before it resets (`⚠ full ~HH:MM`) or where it lands
+  (`→ ~N% at reset`). Projections are skipped in the first 15 minutes,
+  when the rate is mostly noise.
+- Claude Code re-runs the statusLine on its own when a `resets_at` or the
+  prompt cache's `expires_at` passes, so the line doesn't go stale at
+  those moments.
+- `prompt_cache.hit_ratio` and `warm` matter for cost: a cold cache means
+  the next message pays to re-process the whole context.
 
 ## 4. Why subscription vs. API billing is auto-detected, not configured
 
@@ -202,5 +253,5 @@ Spawning a subprocess, hitting the network, or loading a dependency tree
 would make every refresh slower and would add failure modes (a missing
 `node_modules`, a network hiccup, a version mismatch) to something that is
 supposed to be a glanceable, always-on UI element. `statusline/status.js`
-is pure Node.js core modules only (`fs`, `path`, `os`) — no `package.json`
+is pure Node.js core modules only (`fs`, `path`, `os`, `crypto`) — no `package.json`
 dependencies, no build step, no telemetry, no network calls of any kind.

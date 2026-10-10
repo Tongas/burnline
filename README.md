@@ -9,13 +9,16 @@
 **Real spend, right in your status line.**
 
 Burnline is a [Claude Code](https://claude.com/claude-code) plugin that
-shows your monthly spend directly in the status line: how much this
-session has cost, how much this project has cost this month, and how much
-you've spent in total this month — all computed from Claude Code's own
-`cost.total_cost_usd` field, with zero external pricing recalculation.
+shows your spend directly in the status line: how much this session has
+cost, how much this project has cost this month and since you started
+tracking, and how much you've spent in total this month and all-time —
+all computed from Claude Code's own `cost.total_cost_usd` field, with zero
+external pricing recalculation.
 
 ```
-[Sonnet 5] session: $0.34 | project (month): $12.87 | total (month): $45.21 [actual]
+◆ Sonnet 5 │ session $4.20 │ project $61.30 mo · $1,152 all │ total $240.00 mo · $2,942 all  actual
+today $18.40 ▅▇▂▁█▆▄ 7d │ month █████████▋░░ 80% of $300 budget │ pace ~$774.19/mo
+5h ████▊░░░░░ 47% resets 14:43 (2h10m) → ~83% at reset │ 7d █▍░░░░ 22% (3d11h) │ cache 94% ● warm
 ```
 
 ## The problem
@@ -57,14 +60,24 @@ by project and by month. Different metric, different question, no overlap
 - Claude Code hooks never receive cost data — only the `statusLine`
   command does, via stdin, on every refresh. So Burnline is a single
   script (`statusline/status.js`), not a hook.
-- `cost.total_cost_usd` is cumulative per session. Burnline tracks the
-  highest value seen per session (a running peak) and adds only the
-  positive difference each tick — an approach that stays correct even
-  when statusLine ticks for the same session overlap in time, which a
-  simple "last seen" comparison doesn't.
-- Spend is persisted locally, grouped by calendar month and by project, so
-  "this project, this month" and "everything, this month" are both cheap
-  lookups.
+- `cost.total_cost_usd` is cumulative per session. Burnline remembers the
+  last value it saw per session and adds only the positive difference
+  each tick. If the value ever drops, that becomes the new baseline, so
+  later spend is never swallowed.
+- Spend is persisted locally in a single ledger, per project and per
+  calendar month, and the full history is kept — so a new month never
+  erases the past, and "all-time" figures are always available.
+- Amounts are frozen in dollars at the moment they're spent. If prices
+  change later, past months are never recalculated: all-time is simply
+  past spend at the prices of the time plus new spend at the new prices.
+- A project is the directory you launched Claude Code in
+  (`workspace.project_dir`); a `cd` into a subfolder during the session
+  still counts toward that same project, and so does a Claude Code
+  worktree (`<repo>/.claude/worktrees/<name>`).
+- Each Claude account is tracked separately: data lives under
+  `$CLAUDE_CONFIG_DIR/burnline/` (default `~/.claude/burnline/`), and one
+  config dir per account is the documented way to run several accounts.
+  Accounts switched with `/login` inside the same config dir are combined.
 - Subscription (Pro/Max) vs. pay-per-token API billing is auto-detected
   from whether the status line payload includes `rate_limits` — no config
   needed. Same number either way; the label changes to say whether it's
@@ -73,12 +86,48 @@ by project and by month. Different metric, different question, no overlap
 Full design rationale, including why each of these choices was made, is in
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Reading the status line
+
+Line 1 is where the money is: this session, this project (this month and
+all-time), and everything (this month and all-time).
+
+Line 2 is how fast it's going, in color:
+
+- **today** — spend across all projects today, plus a 7-day sparkline
+  (today highlighted). Daily tracking starts the day you upgrade, so the
+  sparkline fills up over the first week.
+- **month** — a bar for this month's total that turns green → yellow →
+  red at 70% / 90%. It fills towards your monthly budget if you set one,
+  otherwise towards last month's total.
+- **pace** — projected end-of-month total at the current rate, colored
+  against the same budget/last-month reference (shown after the first
+  ~1.5 days of the month).
+
+Line 3 shows your limits, when Claude Code reports them (Pro/Max):
+
+- **5h** — the 5-hour window: a bar, when it resets (clock time and
+  countdown), and whether you'll run out first at the current pace
+  (`⚠ full ~16:40`) or where you'll land (`→ ~83% at reset`).
+- **7d** — the weekly window and time until it resets.
+- **cache** — the session's prompt cache hit ratio, and whether it's
+  still warm. A cold cache makes the next message re-pay for the whole
+  context.
+
+Set `NO_COLOR=1` in the statusLine command's environment for plain text.
+
+## Setting a monthly budget
+
+`/burnline:burnline-budget 300` sets a $300/month budget for the month
+bar; `/burnline:burnline-budget off` clears it, and with no argument it
+shows the current one. It's stored in `~/.claude/burnline/config.json`
+(`{"monthlyBudgetUsd": 300}`).
+
 ## Checking tracked spend
 
 `/burnline:burnline-status` lists every project Burnline has tracked for
-the current calendar month — slug, `totalUsd`, and the project's real path
-(when known; data written before path tracking was added shows as
-unknown) — plus the sum total at the bottom. It's read-only: no
+the current calendar month and all-time — slug, month spend, all-time
+spend, and the project's real path (when known; data written before path
+tracking was added shows as unknown) — plus the totals at the bottom. It's read-only: no
 confirmation prompt, nothing is ever deleted or modified.
 
 ## Resetting tracked spend
@@ -86,16 +135,16 @@ confirmation prompt, nothing is ever deleted or modified.
 Burnline ships a slash command, `/burnline:burnline-reset` (shown to
 Claude Code as `/burnline-reset`), for starting the count over.
 
-- With no argument, it targets **every** project file for the **current
+- With no argument, it targets **every** project for the **current
   calendar month only** — a full "start fresh from zero this month."
 - With an argument (a project slug or partial name, e.g. `ads`), it targets
-  only the matching project's file(s) for the current month, leaving
-  everything else untouched.
+  only the matching project(s) for the current month, leaving everything
+  else untouched.
 - It never touches any month other than the current one — this is a
   "reset going forward," not a way to erase historical data.
-- Before deleting anything, it lists exactly which file(s) would be
-  affected and their current `totalUsd`, and waits for you to explicitly
-  confirm in a follow-up message. It will not delete anything in the same
+- Before changing anything, it lists exactly which project(s) would be
+  affected and their current month spend, and waits for you to explicitly
+  confirm in a follow-up message. It will not change anything in the same
   turn it shows you the plan.
 
 ## Install
@@ -117,8 +166,10 @@ up Burnline's format automatically.
 Burnline is entirely local. It makes no network calls, sends no telemetry,
 and depends on no external process — it's a single Node.js script using
 only core modules (`fs`, `path`, `os`, `crypto`). Accumulated spend is
-written to `~/.claude/burnline/<YYYY-MM>/<project-slug>.json` on your own
-machine and nowhere else. Delete that folder at any time to reset.
+written to `~/.claude/burnline/ledger.json` on your own machine and
+nowhere else. Delete that folder at any time to reset. (Older versions
+wrote `<YYYY-MM>/<project-slug>.json` files; they're imported into the
+ledger automatically on first run and then left untouched.)
 
 ## Requirements
 
@@ -131,7 +182,12 @@ Each Claude Code session's status line refreshes independently. If you
 reset spend (or anything else changes on disk) from one session, other
 open sessions won't reflect it until their own next statusLine tick. This
 isn't a bug — there's no shared process to push updates between sessions,
-each one just reads the files on disk whenever it next refreshes.
+each one just reads the ledger on disk whenever it next refreshes.
+
+A session that started last month keeps showing its full cost in
+`session`, while `month` figures only count what was spent this month —
+so early in a month `session` can exceed `project … month`. The `all`
+figures always include it.
 
 ## Author
 

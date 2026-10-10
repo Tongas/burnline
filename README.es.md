@@ -9,14 +9,16 @@
 **Tu gasto real, directo en la barra de estado.**
 
 Burnline es un plugin de [Claude Code](https://claude.com/claude-code) que
-muestra tu gasto mensual directamente en la barra de estado: cuánto costó
-esta sesión, cuánto lleva gastado este proyecto en el mes, y cuánto
-gastaste en total este mes — todo calculado a partir del propio campo
-`cost.total_cost_usd` de Claude Code, sin ningún recálculo externo de
-precios.
+muestra tu gasto directamente en la barra de estado: cuánto costó esta
+sesión, cuánto lleva gastado este proyecto en el mes y desde que empezaste
+a medir, y cuánto gastaste en total este mes y desde siempre — todo
+calculado a partir del propio campo `cost.total_cost_usd` de Claude Code,
+sin ningún recálculo externo de precios.
 
 ```
-[Sonnet 5] session: $0.34 | project (month): $12.87 | total (month): $45.21 [actual]
+◆ Sonnet 5 │ session $4.20 │ project $61.30 mo · $1,152 all │ total $240.00 mo · $2,942 all  actual
+today $18.40 ▅▇▂▁█▆▄ 7d │ month █████████▋░░ 80% of $300 budget │ pace ~$774.19/mo
+5h ████▊░░░░░ 47% resets 14:43 (2h10m) → ~83% at reset │ 7d █▍░░░░ 22% (3d11h) │ cache 94% ● warm
 ```
 
 ## El problema
@@ -61,15 +63,27 @@ ambas si querés el panorama completo.
 - Los hooks de Claude Code nunca reciben datos de costo — solo el comando
   `statusLine` los recibe, vía stdin, en cada refresco. Por eso Burnline
   es un único script (`statusline/status.js`), no un hook.
-- `cost.total_cost_usd` es acumulativo por sesión. Burnline rastrea el
-  valor más alto visto por sesión (un pico corriente) y suma solo la
-  diferencia positiva en cada tick — un enfoque que se mantiene correcto
-  incluso cuando los ticks de statusLine de una misma sesión se superponen
-  en el tiempo, algo que una simple comparación "último valor visto" no
-  logra.
-- El gasto se persiste localmente, agrupado por mes calendario y por
-  proyecto, de modo que "este proyecto, este mes" y "todo, este mes" son
-  ambas consultas baratas.
+- `cost.total_cost_usd` es acumulativo por sesión. Burnline recuerda el
+  último valor visto por sesión y suma solo la diferencia positiva en
+  cada tick. Si el valor llega a bajar, pasa a ser la nueva base, así que
+  el gasto posterior nunca se pierde.
+- El gasto se persiste localmente en un único ledger, por proyecto y por
+  mes calendario, y se conserva el historial completo — un mes nuevo
+  nunca borra el pasado, y las cifras "desde siempre" (`all`) están
+  siempre disponibles.
+- Los montos se congelan en dólares en el momento en que se gastan. Si
+  los precios cambian después, los meses pasados nunca se recalculan: el
+  total histórico es simplemente lo gastado antes a los precios de ese
+  momento más lo nuevo a los precios nuevos.
+- Un proyecto es el directorio donde lanzaste Claude Code
+  (`workspace.project_dir`); un `cd` a una subcarpeta durante la sesión
+  sigue sumando a ese mismo proyecto, y lo mismo un worktree de Claude
+  Code (`<repo>/.claude/worktrees/<nombre>`).
+- Cada cuenta de Claude se rastrea por separado: los datos viven en
+  `$CLAUDE_CONFIG_DIR/burnline/` (por defecto `~/.claude/burnline/`), y un
+  directorio de configuración por cuenta es la forma documentada de usar
+  varias cuentas. Las cuentas que alternás con `/login` dentro del mismo
+  directorio se suman juntas.
 - La detección entre suscripción (Pro/Max) y facturación por API pay-per-
   token es automática, a partir de si el payload de la barra de estado
   incluye `rate_limits` — sin necesidad de configuración. El número es el
@@ -79,13 +93,51 @@ ambas si querés el panorama completo.
 El razonamiento de diseño completo, incluyendo por qué se tomó cada una de
 estas decisiones, está en [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
+## Cómo leer la barra de estado
+
+La línea 1 muestra dónde está la plata: esta sesión, este proyecto (este
+mes y desde siempre), y todo (este mes y desde siempre).
+
+La línea 2 muestra a qué velocidad se gasta, con color:
+
+- **today** — gasto de hoy en todos los proyectos, más un sparkline de 7
+  días (hoy resaltado). El seguimiento diario arranca el día en que
+  actualizás, así que el sparkline se completa durante la primera semana.
+- **month** — una barra del total del mes que pasa de verde → amarillo →
+  rojo al 70% / 90%. Se llena hacia tu presupuesto mensual si definiste
+  uno; si no, hacia el total del mes pasado.
+- **pace** — proyección del total a fin de mes al ritmo actual,
+  coloreada contra la misma referencia (presupuesto o mes pasado). Aparece
+  pasado el primer día y medio del mes.
+
+La línea 3 muestra tus límites, cuando Claude Code los reporta (Pro/Max):
+
+- **5h** — la ventana de 5 horas: una barra, cuándo se resetea (hora y
+  cuenta regresiva), y si al ritmo actual te quedás sin cupo antes
+  (`⚠ full ~16:40`) o en qué porcentaje vas a terminar (`→ ~83% at
+  reset`).
+- **7d** — la ventana semanal y cuánto falta para que se resetee.
+- **cache** — el porcentaje de aciertos del prompt cache de la sesión, y
+  si sigue caliente. Con el cache frío, el próximo mensaje vuelve a pagar
+  todo el contexto.
+
+Definí `NO_COLOR=1` en el entorno del comando de statusLine para texto
+plano.
+
+## Definir un presupuesto mensual
+
+`/burnline:burnline-budget 300` define un presupuesto de $300/mes para la
+barra del mes; `/burnline:burnline-budget off` lo borra, y sin argumento
+muestra el actual. Se guarda en `~/.claude/burnline/config.json`
+(`{"monthlyBudgetUsd": 300}`).
+
 ## Consultar el gasto rastreado
 
 `/burnline:burnline-status` lista cada proyecto que Burnline rastreó en el
-mes calendario actual — slug, `totalUsd`, y la ruta real del proyecto
-(cuando se conoce; los datos escritos antes de que se agregara el
-seguimiento de rutas aparecen como desconocidos) — más el total sumado al
-final. Es de solo lectura: sin pedido de confirmación, nunca borra ni
+mes calendario actual y desde siempre — slug, gasto del mes, gasto
+histórico, y la ruta real del proyecto (cuando se conoce; los datos
+escritos antes de que se agregara el seguimiento de rutas aparecen como
+desconocidos) — más los totales al final. Es de solo lectura: sin pedido de confirmación, nunca borra ni
 modifica nada.
 
 ## Resetear el gasto rastreado
@@ -93,18 +145,18 @@ modifica nada.
 Burnline incluye un slash command, `/burnline:burnline-reset` (mostrado en
 Claude Code como `/burnline-reset`), para volver a empezar el conteo.
 
-- Sin argumento, apunta a **todos** los archivos de proyecto del **mes
+- Sin argumento, apunta a **todos** los proyectos del **mes
   calendario actual únicamente** — un reset completo de "empezar de cero
   este mes."
 - Con un argumento (un slug de proyecto o un nombre parcial, por ejemplo
-  `ads`), apunta solo al archivo o archivos del proyecto que coincida en
-  el mes actual, dejando todo lo demás intacto.
+  `ads`), apunta solo al proyecto o proyectos que coincidan en el mes
+  actual, dejando todo lo demás intacto.
 - Nunca toca ningún mes que no sea el actual — esto es un "reset hacia
   adelante," no una forma de borrar datos históricos.
-- Antes de borrar nada, lista exactamente qué archivo(s) se verían
-  afectados y su `totalUsd` actual, y espera que confirmes explícitamente
-  en un mensaje de seguimiento. No borra nada en el mismo turno en que te
-  muestra el plan.
+- Antes de cambiar nada, lista exactamente qué proyecto(s) se verían
+  afectados y su gasto actual del mes, y espera que confirmes
+  explícitamente en un mensaje de seguimiento. No cambia nada en el mismo
+  turno en que te muestra el plan.
 
 ## Instalación
 
@@ -125,10 +177,11 @@ adoptar el formato de Burnline automáticamente.
 Burnline es enteramente local. No hace llamadas de red, no envía
 telemetría, y no depende de ningún proceso externo — es un único script
 de Node.js que usa solo módulos del core (`fs`, `path`, `os`, `crypto`).
-El gasto acumulado se escribe en
-`~/.claude/burnline/<YYYY-MM>/<project-slug>.json` en tu propia máquina y
-en ningún otro lado. Borrá esa carpeta en cualquier momento para
-resetear.
+El gasto acumulado se escribe en `~/.claude/burnline/ledger.json` en tu
+propia máquina y en ningún otro lado. Borrá esa carpeta en cualquier
+momento para resetear. (Versiones anteriores escribían archivos
+`<YYYY-MM>/<project-slug>.json`; se importan al ledger automáticamente en
+la primera ejecución y después quedan intactos.)
 
 ## Requisitos
 
@@ -143,7 +196,12 @@ independiente. Si reseteás el gasto (o cambia cualquier otra cosa en
 disco) desde una sesión, otras sesiones abiertas no lo van a reflejar
 hasta su propio próximo tick de statusLine. Esto no es un bug — no hay
 ningún proceso compartido que empuje actualizaciones entre sesiones, cada
-una simplemente lee los archivos en disco cuando le toca refrescar.
+una simplemente lee el ledger en disco cuando le toca refrescar.
+
+Una sesión que empezó el mes pasado sigue mostrando su costo completo en
+`session`, mientras que las cifras `month` solo cuentan lo gastado este
+mes — así que a principio de mes `session` puede superar a `project …
+month`. Las cifras `all` siempre lo incluyen.
 
 ## Autor
 
